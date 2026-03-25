@@ -6,27 +6,37 @@
 
 import assert from 'node:assert';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {describe, it} from 'node:test';
 
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {executablePath} from 'puppeteer';
 
+import {launch} from '../src/browser.js';
+import {loadBrowserDefinitionFromFile} from '../src/browserDefinitionLoader.js';
 import type {ToolDefinition} from '../src/tools/ToolDefinition';
 
 describe('e2e', () => {
   async function withClient(
     cb: (client: Client) => Promise<void>,
     extraArgs: string[] = [],
+    {skipDefaults = false}: {skipDefaults?: boolean} = {},
   ) {
+    const defaultArgs = skipDefaults
+      ? ['build/src/bin/chrome-devtools-mcp.js', '--headless']
+      : [
+          'build/src/bin/chrome-devtools-mcp.js',
+          '--headless',
+          '--isolated',
+          '--executable-path',
+          executablePath(),
+        ];
     const transport = new StdioClientTransport({
       command: 'node',
       args: [
-        'build/src/bin/chrome-devtools-mcp.js',
-        '--headless',
-        '--isolated',
-        '--executable-path',
-        executablePath(),
+        ...defaultArgs,
         ...extraArgs,
       ],
     });
@@ -159,5 +169,89 @@ describe('e2e', () => {
       },
       ['--browser', 'chrome'],
     );
+  });
+
+  it('works with --browser pointing to a JSON definition file', async () => {
+    const edgeJsonPath = path.resolve('tests/fixtures/edge.json');
+    const def = loadBrowserDefinitionFromFile(edgeJsonPath);
+    if (!def.resolveExecutablePath('stable')) {
+      return; // Edge not installed — skip
+    }
+
+    await withClient(
+      async client => {
+        const result = await client.callTool({
+          name: 'list_pages',
+          arguments: {},
+        });
+        assert.ok(result.content);
+      },
+      ['--browser', edgeJsonPath],
+    );
+  });
+
+  it('works with --browser JSON definition and --auto-connect', async () => {
+    const edgeJsonPath = path.resolve('tests/fixtures/edge.json');
+    const def = loadBrowserDefinitionFromFile(edgeJsonPath);
+    const edgePath = def.resolveExecutablePath('stable');
+    if (!edgePath) {
+      return; // Edge not installed — skip
+    }
+
+    // Create a temp user data dir for an isolated Edge instance.
+    const userDataDir = path.join(
+      os.tmpdir(),
+      `edge-autoconnect-e2e-${crypto.randomUUID()}`,
+    );
+
+    // Build a test-specific JSON definition with the temp userDataDir baked in,
+    // so --auto-connect resolves the data dir entirely from the JSON.
+    const platform = os.platform();
+    const testDefData = {
+      ...def.data,
+      userDataDirs: {
+        [platform]: {stable: userDataDir},
+      },
+    };
+    const testJsonPath = path.join(
+      os.tmpdir(),
+      `edge-autoconnect-def-${crypto.randomUUID()}.json`,
+    );
+    fs.writeFileSync(testJsonPath, JSON.stringify(testDefData));
+
+    let edgeBrowser;
+    try {
+      edgeBrowser = await launch({
+        headless: true,
+        isolated: false,
+        userDataDir,
+        executablePath: edgePath,
+        devtools: false,
+        chromeArgs: ['--remote-debugging-port=0'],
+      });
+    } catch {
+      fs.unlinkSync(testJsonPath);
+      return; // Edge found but not launchable — skip
+    }
+    try {
+      await withClient(
+        async client => {
+          const result = await client.callTool({
+            name: 'list_pages',
+            arguments: {},
+          });
+          assert.ok(result.content);
+        },
+        [
+          '--browser',
+          testJsonPath,
+          '--auto-connect',
+        ],
+        {skipDefaults: true},
+      );
+    } finally {
+      await edgeBrowser.close();
+      fs.unlinkSync(testJsonPath);
+    }
   });
 });

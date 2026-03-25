@@ -1,0 +1,59 @@
+{
+  "chrome-devtools-mcp/browserDefinition/version": "1.0",
+  "name": "edge",
+  "displayName": "Microsoft Edge",
+  "urlSchemePrefix": "edge",
+  "profileDirPrefix": "edge",
+  "executablePaths": {
+    "win32": {
+      "stable": [
+        "${PROGRAMFILES(X86)}/Microsoft/Edge/Application/msedge.exe",
+        "${LOCALAPPDATA}/Microsoft/Edge/Application/msedge.exe"
+      ],
+      "beta": [
+        "${PROGRAMFILES(X86)}/Microsoft/Edge Beta/Application/msedge.exe",
+        "${LOCALAPPDATA}/Microsoft/Edge Beta/Application/msedge.exe"
+      ],
+      "dev": [
+        "${PROGRAMFILES(X86)}/Microsoft/Edge Dev/Application/msedge.exe",
+        "${LOCALAPPDATA}/Microsoft/Edge Dev/Application/msedge.exe"
+      ],
+      "canary": [
+        "${LOCALAPPDATA}/Microsoft/Edge SxS/Application/msedge.exe"
+      ]
+    },
+    "darwin": {
+      "stable": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
+      "beta": ["/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta"],
+      "dev": ["/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev"],
+      "canary": ["/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary"]
+    },
+    "linux": {
+      "stable": ["/usr/bin/microsoft-edge"],
+      "beta": ["/usr/bin/microsoft-edge-beta"],
+      "dev": ["/usr/bin/microsoft-edge-dev"]
+    }
+  },
+  "userDataDirs": {
+    "win32": {
+      "stable": "${LOCALAPPDATA}/Microsoft/Edge/User Data",
+      "beta": "${LOCALAPPDATA}/Microsoft/Edge Beta/User Data",
+      "dev": "${LOCALAPPDATA}/Microsoft/Edge Dev/User Data",
+      "canary": "${LOCALAPPDATA}/Microsoft/Edge SxS/User Data"
+    },
+    "darwin": {
+      "stable": "~/Library/Application Support/Microsoft Edge",
+      "beta": "~/Library/Application Support/Microsoft Edge Beta",
+      "dev": "~/Library/Application Support/Microsoft Edge Dev",
+      "canary": "~/Library/Application Support/Microsoft Edge Canary"
+    },
+    "linux": {
+      "stable": "~/.config/microsoft-edge",
+      "beta": "~/.config/microsoft-edge-beta",
+      "dev": "~/.config/microsoft-edge-dev"
+    }
+  },
+  "unsupportedChannels": {
+    "linux": ["canary"]
+  }
+}
