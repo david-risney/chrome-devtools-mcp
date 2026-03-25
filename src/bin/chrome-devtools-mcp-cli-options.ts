@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import os from 'node:os';
-
 import type {YargsOptions} from '../third_party/index.js';
 import {yargs, hideBin} from '../third_party/index.js';
 
@@ -120,9 +118,9 @@ export const cliOptions = {
   },
   browser: {
     type: 'string',
-    description: 'Specify which browser to use. Defaults to Chrome.',
-    choices: ['chrome', 'edge'] as const,
-    default: 'chrome',
+    description:
+      'Specify which browser to use. Use "chrome" for the built-in Chrome, "default" to auto-detect, a name matching an installed browser definition, or a path to a browser definition JSON file.',
+    default: 'default',
   },
   logFile: {
     type: 'string',
@@ -280,16 +278,6 @@ export function parseArguments(version: string, argv = process.argv) {
       ) {
         args.channel = 'stable';
       }
-      // Edge Canary is not available on Linux.
-      if (
-        args.browser === 'edge' &&
-        args.channel === 'canary' &&
-        os.platform() === 'linux'
-      ) {
-        throw new Error(
-          `Edge Canary is not available on Linux. Use --executablePath to specify a custom Edge binary.`,
-        );
-      }
       return true;
     })
     .example([
@@ -309,7 +297,7 @@ export function parseArguments(version: string, argv = process.argv) {
       ['$0 --channel canary', 'Use Chrome Canary installed on this system'],
       ['$0 --channel dev', 'Use Chrome Dev installed on this system'],
       ['$0 --channel stable', 'Use stable Chrome installed on this system'],
-      ['$0 --browser edge', 'Use Microsoft Edge instead of Chrome'],
+      ['$0 --browser edge', 'Use a browser matching an installed "edge" definition'],
       ['$0 --logFile /tmp/log.txt', 'Save logs to a file'],
       ['$0 --help', 'Print CLI options'],
       [
@@ -344,7 +332,7 @@ export function parseArguments(version: string, argv = process.argv) {
       ],
       [
         '$0 --auto-connect --browser=edge',
-        'Connect to a stable Edge instance running instead of launching a new instance',
+        'Connect to a running browser matching the "edge" definition',
       ],
       [
         '$0 --no-usage-statistics',

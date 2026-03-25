@@ -5,6 +5,7 @@
  */
 
 import type {ParsedArguments} from '../bin/chrome-devtools-mcp-cli-options.js';
+import type {BrowserDefinition} from '../browserDefinition.js';
 import type {McpPage} from '../McpPage.js';
 import {zod} from '../third_party/index.js';
 import type {
@@ -135,6 +136,7 @@ export interface Response {
  * Only add methods required by tools/*.
  */
 export type Context = Readonly<{
+  browserDef: BrowserDefinition;
   isRunningPerformanceTrace(): boolean;
   setIsRunningPerformanceTrace(x: boolean): void;
   isCruxEnabled(): boolean;

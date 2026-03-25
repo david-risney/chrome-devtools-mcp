@@ -9,10 +9,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import type {Channel} from './browserDefinition.js';
 import {
-  resolveEdgeExecutablePath,
-  resolveEdgeUserDataDir,
-} from './edgePaths.js';
+  type BrowserDefinition,
+  CHROME_DEFINITION,
+} from './browserDefinition.js';
 import {logger} from './logger.js';
 import type {
   Browser,
@@ -24,24 +25,23 @@ import {puppeteer} from './third_party/index.js';
 
 let browser: Browser | undefined;
 
-function makeTargetFilter(enableExtensions = false) {
-  const ignoredPrefixes = new Set([
-    'chrome://',
-    'chrome-untrusted://',
-    'edge://',
-    'edge-untrusted://',
-  ]);
+function makeTargetFilter(
+  def: BrowserDefinition = CHROME_DEFINITION,
+  enableExtensions = false,
+) {
+  const ignoredPrefixes = new Set(def.internalSchemes);
   if (!enableExtensions) {
-    ignoredPrefixes.add('chrome-extension://');
-    ignoredPrefixes.add('edge-extension://');
+    for (const scheme of def.extensionSchemes) {
+      ignoredPrefixes.add(scheme);
+    }
   }
 
   return function targetFilter(target: Target): boolean {
-    if (isBrowserNewTabUrl(target.url())) {
+    if (def.isNewTabUrl(target.url())) {
       return true;
     }
     // Could be the only page opened in the browser.
-    if (isBrowserInspectUrl(target.url())) {
+    if (def.isInspectUrl(target.url())) {
       return true;
     }
     for (const prefix of ignoredPrefixes) {
@@ -59,17 +59,17 @@ export async function ensureBrowserConnected(options: {
   wsHeaders?: Record<string, string>;
   devtools: boolean;
   channel?: Channel;
-  browserKind?: BrowserKind;
+  browserDef?: BrowserDefinition;
   userDataDir?: string;
   enableExtensions?: boolean;
 }) {
-  const {channel, enableExtensions, browserKind = 'chrome'} = options;
+  const {channel, enableExtensions, browserDef = CHROME_DEFINITION} = options;
   if (browser?.connected) {
     return browser;
   }
 
   const connectOptions: Parameters<typeof puppeteer.connect>[0] = {
-    targetFilter: makeTargetFilter(enableExtensions),
+    targetFilter: makeTargetFilter(browserDef, enableExtensions),
     defaultViewport: null,
     handleDevToolsAsPage: true,
   };
@@ -84,10 +84,10 @@ export async function ensureBrowserConnected(options: {
     connectOptions.browserURL = options.browserURL;
   } else if (channel || options.userDataDir) {
     let userDataDir = options.userDataDir;
-    // Puppeteer's runtime does not resolve Edge channels, so we find
-    // Edge's default user data dir ourselves for auto-connect.
-    if (!userDataDir && browserKind === 'edge' && channel) {
-      userDataDir = resolveEdgeUserDataDir(channel);
+    // Resolve the browser's default user data dir for auto-connect
+    // when the definition provides userDataDirs.
+    if (!userDataDir && browserDef.userDataDirs && channel) {
+      userDataDir = browserDef.resolveUserDataDir(channel);
     }
     if (userDataDir) {
       autoConnect = true;
@@ -114,7 +114,7 @@ export async function ensureBrowserConnected(options: {
         connectOptions.browserWSEndpoint = browserWSEndpoint;
       } catch (error) {
         throw new Error(
-          `Could not connect to ${browserName(browserKind)} in ${userDataDir}. Check if ${browserName(browserKind)} is running and remote debugging is enabled by going to ${inspectUrl(browserKind)}.`,
+          `Could not connect to ${browserDef.displayName} in ${userDataDir}. Check if ${browserDef.displayName} is running and remote debugging is enabled by going to ${browserDef.inspectUrl}.`,
           {
             cause: error,
           },
@@ -139,7 +139,7 @@ export async function ensureBrowserConnected(options: {
     browser = await puppeteer.connect(connectOptions);
   } catch (err) {
     throw new Error(
-      `Could not connect to ${browserName(browserKind)}. ${autoConnect ? `Check if ${browserName(browserKind)} is running and remote debugging is enabled by going to ${inspectUrl(browserKind)}.` : `Check if ${browserName(browserKind)} is running.`}`,
+      `Could not connect to ${browserDef.displayName}. ${autoConnect ? `Check if ${browserDef.displayName} is running and remote debugging is enabled by going to ${browserDef.inspectUrl}.` : `Check if ${browserDef.displayName} is running.`}`,
       {
         cause: err,
       },
@@ -153,7 +153,7 @@ interface McpLaunchOptions {
   acceptInsecureCerts?: boolean;
   executablePath?: string;
   channel?: Channel;
-  browserKind?: BrowserKind;
+  browserDef?: BrowserDefinition;
   userDataDir?: string;
   headless: boolean;
   isolated: boolean;
@@ -193,13 +193,12 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
     executablePath,
     headless,
     isolated,
-    browserKind = 'chrome',
+    browserDef = CHROME_DEFINITION,
   } = options;
-  const browserPrefix = browserKind === 'edge' ? 'edge' : 'chrome';
   const profileDirName =
     channel && channel !== 'stable'
-      ? `${browserPrefix}-profile-${channel}`
-      : `${browserPrefix}-profile`;
+      ? `${browserDef.profileDirPrefix}-profile-${channel}`
+      : `${browserDef.profileDirPrefix}-profile`;
 
   let userDataDir = options.userDataDir;
   if (!isolated && !userDataDir) {
@@ -230,12 +229,22 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
   }
   let resolvedExecutablePath = executablePath;
   if (!resolvedExecutablePath) {
-    if (browserKind === 'edge') {
-      // Puppeteer's runtime does not resolve Edge channels, so we find the
-      // Edge executable ourselves and pass it as executablePath.
-      const edgeChannel = channel ?? 'stable';
-      resolvedExecutablePath = resolveEdgeExecutablePath(edgeChannel);
+    if (browserDef.executablePaths) {
+      // The definition provides executable paths — resolve from those.
+      const resolvedChannel = channel ?? 'stable';
+      resolvedExecutablePath = browserDef.resolveExecutablePath(resolvedChannel);
+      if (!resolvedExecutablePath) {
+        const channelName =
+          resolvedChannel === 'stable'
+            ? browserDef.displayName
+            : `${browserDef.displayName} ${resolvedChannel[0].toUpperCase() + resolvedChannel.slice(1)}`;
+        throw new Error(
+          `Could not find ${channelName} executable. ` +
+            `Install ${channelName} or use --executablePath to specify the path manually.`,
+        );
+      }
     } else {
+      // Default: let Puppeteer resolve via channel name (Chrome).
       puppeteerChannel =
         channel && channel !== 'stable'
           ? (`chrome-${channel}` as ChromeReleaseChannel)
@@ -250,7 +259,7 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
   try {
     const browser = await puppeteer.launch({
       channel: puppeteerChannel,
-      targetFilter: makeTargetFilter(options.enableExtensions),
+      targetFilter: makeTargetFilter(browserDef, options.enableExtensions),
       executablePath: resolvedExecutablePath,
       defaultViewport: null,
       userDataDir,
@@ -302,35 +311,12 @@ export async function ensureBrowserLaunched(
   return browser;
 }
 
-export type Channel = 'stable' | 'canary' | 'beta' | 'dev';
-
-export type BrowserKind = 'chrome' | 'edge';
-
-export function browserName(browserKind: BrowserKind): string {
-  return browserKind === 'edge' ? 'Edge' : 'Chrome';
-}
-
-export function inspectUrl(browserKind: BrowserKind): string {
-  return browserKind === 'edge'
-    ? 'edge://inspect/#remote-debugging'
-    : 'chrome://inspect/#remote-debugging';
-}
-
-export function isExtensionUrl(url: string): boolean {
-  return (
-    url.startsWith('chrome-extension://') || url.startsWith('edge-extension://')
-  );
-}
-
-export function isBrowserNewTabUrl(url: string): boolean {
-  return url === 'chrome://newtab/' || url === 'edge://newtab/';
-}
-
-export function isBrowserInspectUrl(url: string): boolean {
-  return url.startsWith('chrome://inspect') || url.startsWith('edge://inspect');
-}
-
+export type {Channel, BrowserDefinitionData} from './browserDefinition.js';
 export {
-  resolveEdgeExecutablePath,
-  resolveEdgeUserDataDir,
-} from './edgePaths.js';
+  BrowserDefinition,
+  CHROME_DEFINITION,
+} from './browserDefinition.js';
+export {
+  loadBrowserDefinitions,
+  resolveBrowserArg,
+} from './browserDefinitionLoader.js';

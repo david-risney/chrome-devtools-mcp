@@ -509,10 +509,9 @@ The Chrome DevTools MCP server supports the following configuration option:
   - **Choices:** `stable`, `canary`, `beta`, `dev`
 
 - **`--browser`**
-  Specify which browser to use. Defaults to Chrome.
+  Specify which browser to use. Use `"chrome"` for the built-in Chrome, `"default"` to auto-detect the system default browser, a name matching an installed browser definition, or a path to a browser definition JSON file.
   - **Type:** string
-  - **Choices:** `chrome`, `edge`
-  - **Default:** `chrome`
+  - **Default:** `default`
 
 - **`--logFile`/ `--log-file`**
   Path to a file to write debug logs to. Set the env variable `DEBUG` to `*` to enable verbose logs. Useful for submitting bug reports.
@@ -756,99 +755,60 @@ For more details on remote debugging, see the [Chrome DevTools documentation](ht
 
 Please consult [these instructions](./docs/debugging-android.md).
 
-### Additional browser support
+### Custom browser support
 
-In addition to Chrome, Chrome DevTools MCP supports Microsoft Edge. Edge must be installed separately. It is not bundled or downloaded by the MCP server.
+Chrome DevTools MCP supports browsers other than Chrome through browser definition JSON files. The `--browser` flag selects which browser to use:
 
-#### Microsoft Edge
+- `--browser=default` (the default) auto-detects the system default browser if a matching definition is installed, otherwise uses Chrome.
+- `--browser=chrome` uses the built-in Chrome definition.
+- `--browser=<name>` uses a definition matching the given name (e.g. `--browser=edge` if an `edge.json` definition is installed).
+- `--browser=/path/to/browser.json` loads a definition directly from a file.
 
-Pass `--browser=edge` to use the Microsoft Edge browser:
+#### Browser definition files
 
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--browser=edge"]
-    }
-  }
-}
-```
+Browser definitions are JSON files placed in:
 
-You can combine `--browser=edge` with other flags such as `--channel`, `--headless`, `--autoConnect`, and `--executablePath`.
+| Platform    | Directory                                          |
+| ----------- | -------------------------------------------------- |
+| **Windows** | `%USERPROFILE%\.chrome-devtools-mcp\browsers\`   |
+| **macOS**   | `~/.config/chrome-devtools-mcp/browsers/`          |
+| **Linux**   | `~/.config/chrome-devtools-mcp/browsers/`          |
 
-#### Edge channels
+All `*.json` files in this directory are loaded at startup. Each file must contain the identifying property `"chrome-devtools-mcp/browserDefinition/version"` set to `"1.0"`.
 
-Edge supports `stable`, `beta`, `dev`, and `canary` channels selected via `--channel`.
-
-```bash
-npx chrome-devtools-mcp@latest --browser=edge --channel=beta
-```
-
-#### Edge executable paths
-
-The MCP server automatically detects Edge installations in the standard locations:
-
-| Platform    | Stable channel path                                              |
-| ----------- | ---------------------------------------------------------------- |
-| **Windows** | `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`   |
-| **macOS**   | `/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge` |
-| **Linux**   | `/opt/microsoft/msedge/msedge` or `/usr/bin/microsoft-edge`      |
-
-If Edge is installed in a non-standard location, use `--executablePath` to specify the path manually.
-
-#### Edge user data directory
-
-When using `--browser=edge`, the user data directory pattern changes from `chrome-profile-$CHANNEL` to `edge-profile-$CHANNEL`:
-
-- Linux / macOS: `$HOME/.cache/chrome-devtools-mcp/edge-profile-$CHANNEL`
-- Windows: `%HOMEPATH%/.cache/chrome-devtools-mcp/edge-profile-$CHANNEL`
-
-#### Auto-connecting to a running Edge instance
-
-Use `--autoConnect` with `--browser=edge` to connect to an already-running Edge instance:
+Example browser definition (`edge.json`):
 
 ```json
 {
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@latest",
-        "--autoConnect",
-        "--browser=edge"
+  "chrome-devtools-mcp/browserDefinition/version": "1.0",
+  "name": "edge",
+  "displayName": "Microsoft Edge",
+  "urlSchemePrefix": "edge",
+  "profileDirPrefix": "edge",
+  "executablePaths": {
+    "win32": {
+      "stable": [
+        "${PROGRAMFILES(X86)}/Microsoft/Edge/Application/msedge.exe",
+        "${LOCALAPPDATA}/Microsoft/Edge/Application/msedge.exe"
       ]
+    },
+    "darwin": {
+      "stable": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+    },
+    "linux": {
+      "stable": ["/opt/microsoft/msedge/msedge", "/usr/bin/microsoft-edge"]
     }
-  }
+  },
+  "userDataDirs": {
+    "win32": { "stable": "${LOCALAPPDATA}/Microsoft/Edge/User Data" },
+    "darwin": { "stable": "~/Library/Application Support/Microsoft Edge" },
+    "linux": { "stable": "~/.config/microsoft-edge" }
+  },
+  "unsupportedChannels": { "linux": ["canary"] }
 }
 ```
 
-Before connecting, enable remote debugging in Edge by navigating to `edge://inspect/#remote-debugging`.
-
-#### Manual connection to a running Edge instance
-
-Edge uses the same remote debugging protocol as Chrome. Start Edge with a remote debugging port and connect via `--browser-url`:
-
-**Windows**
-
-```bash
-"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9222 --user-data-dir="%TEMP%\edge-profile-stable"
-```
-
-**macOS**
-
-```bash
-/Applications/Microsoft\ Edge.app/Contents/MacOS/Microsoft\ Edge --remote-debugging-port=9222 --user-data-dir=/tmp/edge-profile-stable
-```
-
-**Linux**
-
-```bash
-/opt/microsoft/msedge/msedge --remote-debugging-port=9222 --user-data-dir=/tmp/edge-profile-stable
-```
-
-Then configure the MCP server with `--browser-url=http://127.0.0.1:9222`.
+Paths may contain `${ENV_VAR}` placeholders that are expanded at load time. The `urlSchemePrefix` field is used to derive URL schemes by replacing `chrome` (e.g., `chrome-extension://` becomes `edge-extension://`). Explicit `urlSchemes` can also be provided to override the derived values.
 
 ## Known limitations
 

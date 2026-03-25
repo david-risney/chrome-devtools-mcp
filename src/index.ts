@@ -7,8 +7,13 @@
 import type fs from 'node:fs';
 
 import type {parseArguments} from './bin/chrome-devtools-mcp-cli-options.js';
-import type {Channel, BrowserKind} from './browser.js';
-import {ensureBrowserConnected, ensureBrowserLaunched} from './browser.js';
+import type {Channel, BrowserDefinition} from './browser.js';
+import {
+  ensureBrowserConnected,
+  ensureBrowserLaunched,
+  loadBrowserDefinitions,
+  resolveBrowserArg,
+} from './browser.js';
 import {loadIssueDescriptions} from './issue-descriptions.js';
 import {logger} from './logger.js';
 import {McpContext} from './McpContext.js';
@@ -67,8 +72,18 @@ export async function createMcpServer(
       chromeArgs.push(`--proxy-server=${serverArgs.proxyServer}`);
     }
     const devtools = serverArgs.experimentalDevtools ?? false;
-    const browserKind: BrowserKind =
-      serverArgs.browser === 'edge' ? 'edge' : 'chrome';
+    const definitions = loadBrowserDefinitions();
+    const browserDef: BrowserDefinition = resolveBrowserArg(
+      serverArgs.browser ?? 'default',
+      definitions,
+    );
+    // Validate channel support for the resolved browser definition.
+    const channel = serverArgs.channel as Channel | undefined;
+    if (channel && !browserDef.isChannelSupported(channel)) {
+      throw new Error(
+        `${browserDef.displayName} does not support the "${channel}" channel on this platform. Use --executablePath to specify a custom binary.`,
+      );
+    }
     const browser =
       serverArgs.browserUrl || serverArgs.wsEndpoint || serverArgs.autoConnect
         ? await ensureBrowserConnected({
@@ -79,7 +94,7 @@ export async function createMcpServer(
             channel: serverArgs.autoConnect
               ? (serverArgs.channel as Channel)
               : undefined,
-            browserKind,
+            browserDef,
             userDataDir: serverArgs.userDataDir,
             devtools,
           })
@@ -87,7 +102,7 @@ export async function createMcpServer(
             headless: serverArgs.headless,
             executablePath: serverArgs.executablePath,
             channel: serverArgs.channel as Channel,
-            browserKind,
+            browserDef,
             isolated: serverArgs.isolated ?? false,
             userDataDir: serverArgs.userDataDir,
             logFile: options.logFile,
@@ -105,6 +120,7 @@ export async function createMcpServer(
         experimentalDevToolsDebugging: devtools,
         experimentalIncludeAllPages: serverArgs.experimentalIncludeAllPages,
         performanceCrux: serverArgs.performanceCrux,
+        browserDef,
       });
     }
     return context;

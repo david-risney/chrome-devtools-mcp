@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import {isExtensionUrl} from './browser.js';
+import {type BrowserDefinition, CHROME_DEFINITION} from './browserDefinition.js';
 import type {TargetUniverse} from './DevtoolsUtils.js';
 import {UniverseManager} from './DevtoolsUtils.js';
 import {McpPage} from './McpPage.js';
@@ -60,6 +60,8 @@ interface McpContextOptions {
   experimentalIncludeAllPages?: boolean;
   // Whether CrUX data should be fetched.
   performanceCrux: boolean;
+  // The browser definition for URL scheme detection.
+  browserDef?: BrowserDefinition;
 }
 
 const DEFAULT_TIMEOUT = 5_000;
@@ -116,6 +118,10 @@ export class McpContext implements Context {
 
   #locatorClass: typeof Locator;
   #options: McpContextOptions;
+
+  get browserDef(): BrowserDefinition {
+    return this.#options.browserDef ?? CHROME_DEFINITION;
+  }
 
   private constructor(
     browser: Browser,
@@ -507,7 +513,7 @@ export class McpContext implements Context {
     const allTargets = await this.browser.targets();
 
     const serviceWorkers = allTargets.filter(target => {
-      return target.type() === 'service_worker' && isExtensionUrl(target.url());
+      return target.type() === 'service_worker' && this.browserDef.isExtensionUrl(target.url());
     });
 
     for (const serviceWorker of serviceWorkers) {
@@ -586,7 +592,7 @@ export class McpContext implements Context {
 
     const allTargets = this.browser.targets();
     const extensionTargets = allTargets.filter(target => {
-      return isExtensionUrl(target.url()) && target.type() === 'page';
+      return this.browserDef.isExtensionUrl(target.url()) && target.type() === 'page';
     });
 
     for (const target of extensionTargets) {

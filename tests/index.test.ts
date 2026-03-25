@@ -12,7 +12,6 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {executablePath} from 'puppeteer';
 
-import {resolveEdgeExecutablePath} from '../src/browser.js';
 import type {ToolDefinition} from '../src/tools/ToolDefinition';
 
 describe('e2e', () => {
@@ -149,14 +148,7 @@ describe('e2e', () => {
     );
   });
 
-  it('works with --browser edge', async () => {
-    let edgePath: string;
-    try {
-      edgePath = resolveEdgeExecutablePath('stable');
-    } catch {
-      return; // Edge not installed — skip
-    }
-
+  it('works with --browser argument', async () => {
     await withClient(
       async client => {
         const result = await client.callTool({
@@ -165,7 +157,7 @@ describe('e2e', () => {
         });
         assert.ok(result.content);
       },
-      ['--browser', 'edge', '--executable-path', edgePath],
+      ['--browser', 'chrome'],
     );
   });
 });
