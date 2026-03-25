@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {execSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -113,121 +112,9 @@ export function loadBrowserDefinitions(): Map<string, BrowserDefinition> {
 }
 
 /**
- * Detects the system's default browser executable path.
- * Returns the path or undefined if detection fails.
- */
-function detectDefaultBrowserExePath(): string | undefined {
-  const platform = os.platform();
-  try {
-    if (platform === 'win32') {
-      // Query the default HTTPS handler ProgId, then resolve to exe path.
-      const progId = execSync(
-        'reg query "HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice" /v ProgId',
-        {encoding: 'utf8', timeout: 5000},
-      );
-      const progIdMatch = progId.match(/ProgId\s+REG_SZ\s+(\S+)/);
-      if (!progIdMatch) {
-        return undefined;
-      }
-      const command = execSync(
-        `reg query "HKCR\\${progIdMatch[1]}\\shell\\open\\command" /ve`,
-        {encoding: 'utf8', timeout: 5000},
-      );
-      const exeMatch = command.match(/"([^"]+\.exe)"/i);
-      return exeMatch ? exeMatch[1] : undefined;
-    } else if (platform === 'darwin') {
-      // Use 'open -Ra' to find the default HTTPS handler app.
-      const appPath = execSync('open -Ra "https://"', {
-        encoding: 'utf8',
-        timeout: 5000,
-      }).trim();
-      if (!appPath) {
-        return undefined;
-      }
-      // Resolve to the binary inside Contents/MacOS.
-      const macosDir = path.join(appPath, 'Contents', 'MacOS');
-      if (fs.existsSync(macosDir)) {
-        const entries = fs.readdirSync(macosDir);
-        if (entries.length > 0) {
-          return path.join(macosDir, entries[0]);
-        }
-      }
-      return undefined;
-    } else {
-      // Linux: use xdg-settings to get the default .desktop file, then parse Exec=.
-      const desktop = execSync('xdg-settings get default-web-browser', {
-        encoding: 'utf8',
-        timeout: 5000,
-      }).trim();
-      if (!desktop) {
-        return undefined;
-      }
-      // Try to find the .desktop file and parse Exec line.
-      const desktopDirs = [
-        '/usr/share/applications',
-        '/usr/local/share/applications',
-        path.join(os.homedir(), '.local', 'share', 'applications'),
-      ];
-      for (const dir of desktopDirs) {
-        const desktopFile = path.join(dir, desktop);
-        if (fs.existsSync(desktopFile)) {
-          const content = fs.readFileSync(desktopFile, 'utf8');
-          const execMatch = content.match(/^Exec=(\S+)/m);
-          if (execMatch) {
-            return execMatch[1];
-          }
-        }
-      }
-      return undefined;
-    }
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Normalizes a file path for comparison: resolves to absolute, lowercases on Windows.
- */
-function normalizePath(p: string): string {
-  const resolved = path.resolve(p);
-  return os.platform() === 'win32' ? resolved.toLowerCase() : resolved;
-}
-
-/**
- * Matches a detected executable path against all loaded browser definitions.
- * Returns the matching definition, or undefined if no match.
- */
-function matchExeToDefinition(
-  exePath: string,
-  definitions: Map<string, BrowserDefinition>,
-): BrowserDefinition | undefined {
-  const normalizedExe = normalizePath(exePath);
-  const platform = os.platform();
-  for (const def of definitions.values()) {
-    const platformPaths = def.executablePaths?.[platform];
-    if (!platformPaths) {
-      continue;
-    }
-    for (const channelPaths of Object.values(platformPaths)) {
-      if (!channelPaths) {
-        continue;
-      }
-      for (const candidate of channelPaths) {
-        const expanded = expandEnvVars(candidate);
-        if (expanded && normalizePath(expanded) === normalizedExe) {
-          return def;
-        }
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
  * Resolves the --browser argument to a BrowserDefinition.
  *
- * - "chrome" → built-in Chrome definition
- * - "default" → detect system default browser, match against loaded definitions, fall back to Chrome
+ * - "chrome" or "default" → built-in Chrome definition
  * - A name matching a loaded definition → that definition
  * - A file path ending in .json → load definition from file
  */
@@ -236,13 +123,6 @@ export function resolveBrowserArg(
   definitions: Map<string, BrowserDefinition>,
 ): BrowserDefinition {
   if (browserArg === 'default') {
-    const exePath = detectDefaultBrowserExePath();
-    if (exePath) {
-      const match = matchExeToDefinition(exePath, definitions);
-      if (match) {
-        return match;
-      }
-    }
     // Fall back to Chrome.
     return definitions.get('chrome') ?? CHROME_DEFINITION;
   }
